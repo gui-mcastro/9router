@@ -3,6 +3,11 @@ const FIM_HOLE = "<｜fim▁hole｜>";
 const FIM_END = "<｜fim▁end｜>";
 const FIM_MARKERS = [FIM_BEGIN, FIM_HOLE, FIM_END];
 
+import { getCompletionCapability } from "../services/completionCapabilities.js";
+
+const BAD_REQUEST = 400;
+const COMPLETION_SYSTEM_PROMPT = "Complete only the missing source code. Return no markdown, explanation, FIM delimiter, prefix, or suffix.";
+
 export function parseCompletionPrompt(prompt) {
   const markerCounts = FIM_MARKERS.map((marker) => prompt.split(marker).length - 1);
   if (markerCounts.every((count) => count === 0)) {
@@ -88,4 +93,73 @@ export function normalizeCompletionResponse(chatResponse, request) {
     }],
     usage: chatResponse.usage,
   };
+}
+
+function completionUserMessage({ prefix, suffix }) {
+  return `PREFIX:\n${prefix}\n\nHOLE:\n\n\nSUFFIX:\n${suffix}`;
+}
+
+export async function handleCompletion(request) {
+  const [{ errorResponse }, { getModelInfo, getComboModels }, { handleChat }] = await Promise.all([
+    import("open-sse/utils/error.js"),
+    import("../services/model.js"),
+    import("./chat.js"),
+  ]);
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return errorResponse(BAD_REQUEST, "Invalid JSON body");
+  }
+
+  const validation = validateCompletionBody(body);
+  if (validation.error) return errorResponse(BAD_REQUEST, validation.error);
+
+  let fim;
+  try {
+    fim = parseCompletionPrompt(body.prompt);
+  } catch (error) {
+    return errorResponse(BAD_REQUEST, error.message);
+  }
+
+  const comboModels = await getComboModels(body.model);
+  if (comboModels) return errorResponse(BAD_REQUEST, "Selected model does not support verified FIM completion");
+  const modelInfo = await getModelInfo(body.model);
+  const capability = modelInfo?.provider && getCompletionCapability(modelInfo.provider, modelInfo.model);
+  if (!capability?.supportsCompletion || (fim.isFim && !capability.supportsFim)) {
+    return errorResponse(BAD_REQUEST, "Selected model does not support verified FIM completion");
+  }
+
+  const chatBody = {
+    model: body.model,
+    messages: [
+      { role: "system", content: COMPLETION_SYSTEM_PROMPT },
+      { role: "user", content: completionUserMessage(fim) },
+    ],
+    stream: false,
+    ...(validation.maxTokens !== undefined && { max_tokens: validation.maxTokens }),
+    ...(validation.stops !== undefined && { stop: validation.stops }),
+    ...(capability.disableThinking === "enable_thinking" && { enable_thinking: false }),
+  };
+  const chatRequest = new Request(new URL("/api/v1/chat/completions", request.url), {
+    method: "POST",
+    headers: request.headers,
+    body: JSON.stringify(chatBody),
+  });
+  const response = await handleChat(chatRequest, {
+    endpoint: "/v1/completions",
+    body,
+    headers: Object.fromEntries(request.headers.entries()),
+  });
+  if (!response.ok) return response;
+
+  let chatResponse;
+  try {
+    chatResponse = await response.json();
+  } catch {
+    return errorResponse(502, "Invalid JSON response from chat completion");
+  }
+  return new Response(JSON.stringify(normalizeCompletionResponse(chatResponse, body)), {
+    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+  });
 }

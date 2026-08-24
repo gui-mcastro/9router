@@ -30,6 +30,9 @@ export function parseCompletionPrompt(prompt) {
 }
 
 export function validateCompletionBody(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { error: "request body must be an object" };
+  }
   if (typeof body.model !== "string" || !body.model.trim()) {
     return { error: "model must be a non-empty string" };
   }
@@ -55,8 +58,16 @@ export function validateCompletionBody(body) {
   return { maxTokens: body.max_tokens, stops };
 }
 
+function stripStructuralLeakage(content) {
+  let text = content
+    .replace(new RegExp(`^(?:${FIM_BEGIN}|${FIM_HOLE}|${FIM_END})\\s*`), "")
+    .replace(new RegExp(`\\s*(?:${FIM_BEGIN}|${FIM_HOLE}|${FIM_END})$`), "");
+  const fenced = text.match(/^```[^\r\n]*\r?\n([\s\S]*?)\r?\n```$/);
+  return fenced ? fenced[1] : text;
+}
+
 export function normalizeCompletionResponse(chatResponse, request) {
-  const content = chatResponse.choices?.[0]?.message?.content || "";
+  const content = stripStructuralLeakage(chatResponse.choices?.[0]?.message?.content || "");
   const stops = typeof request.stop === "string" ? [request.stop] : request.stop || [];
   const stopIndexes = stops
     .map((stop) => content.indexOf(stop))

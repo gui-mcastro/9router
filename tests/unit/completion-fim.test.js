@@ -50,6 +50,8 @@ describe("DeepSeek FIM completion", () => {
   });
 
   it.each([
+    [null, "request body must be an object"],
+    ["not an object", "request body must be an object"],
     [{ prompt: "prefix" }, "model must be a non-empty string"],
     [{ model: "alims-intl/deepseek-v4-flash-0731", prompt: "" }, "prompt must be a non-empty string"],
     [{ model: "alims-intl/deepseek-v4-flash-0731", prompt: "prefix", stream: true }, "completion streaming is not yet supported"],
@@ -78,6 +80,25 @@ describe("DeepSeek FIM completion", () => {
       logprobs: null,
     });
     expect(out.usage.total_tokens).toBe(8);
+  });
+
+  it("removes only outer code fences and structural FIM marker leakage", () => {
+    const out = normalizeCompletionResponse({
+      id: "chatcmpl-2",
+      created: 11,
+      model: "alims-intl/deepseek-v4-flash-0731",
+      choices: [{
+        message: { content: `${BEGIN}\n\`\`\`php\nreturn $total;\n\`\`\`\n${HOLE}` },
+        finish_reason: "stop",
+      }],
+    }, {});
+
+    expect(out.choices[0].text).toBe("return $total;");
+
+    const preserved = normalizeCompletionResponse({
+      choices: [{ message: { content: "const marker = '<｜fim▁begin｜>';" } }],
+    }, {});
+    expect(preserved.choices[0].text).toBe("const marker = '<｜fim▁begin｜>';");
   });
 
   it("only certifies the initial provider and model", () => {

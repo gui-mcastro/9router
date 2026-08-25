@@ -103,6 +103,16 @@ describe("handleCompletion", () => {
     expect((await error(response)).error.message).toBe("Invalid API key");
   });
 
+  it("removes the echoed FIM prefix so PhpStorm receives only an insertion", async () => {
+    handleChat.mockResolvedValueOnce(new Response(JSON.stringify({
+      choices: [{ index: 0, message: { content: "function calculateTotal($items)\n{\n\n    return array_sum($items);" }, finish_reason: "stop" }],
+    }), { headers: { "content-type": "application/json" } }));
+
+    const response = await handleCompletion(request(phpStormPayload));
+
+    expect((await response.json()).choices[0].text).toBe("return array_sum($items);");
+  });
+
   it("returns 502 when chat succeeds without completion content", async () => {
     handleChat.mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: {} }] }), {
       headers: { "content-type": "application/json" },

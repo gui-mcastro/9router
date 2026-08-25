@@ -72,8 +72,22 @@ function stripStructuralLeakage(content) {
   return fenced ? fenced[1] : text;
 }
 
+function stripEchoedFimPrefix(content, prompt) {
+  let prefix;
+  try {
+    ({ prefix } = parseCompletionPrompt(prompt));
+  } catch {
+    return content;
+  }
+  const normalizedPrefix = prefix.trimEnd();
+  for (let length = normalizedPrefix.length; length >= 16; length -= 1) {
+    if (content.startsWith(normalizedPrefix.slice(-length))) return content.slice(length).trimStart();
+  }
+  return content;
+}
+
 export function normalizeCompletionResponse(chatResponse, request) {
-  const content = stripStructuralLeakage(chatResponse.choices[0].message.content);
+  const content = stripEchoedFimPrefix(stripStructuralLeakage(chatResponse.choices[0].message.content), request.prompt);
   const stops = typeof request.stop === "string" ? [request.stop] : request.stop || [];
   const stopIndexes = stops
     .map((stop) => content.indexOf(stop))

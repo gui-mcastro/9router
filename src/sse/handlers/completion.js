@@ -7,6 +7,7 @@ import { getCompletionCapability } from "../services/completionCapabilities.js";
 
 const BAD_REQUEST = 400;
 const COMPLETION_SYSTEM_PROMPT = "Complete only the missing source code. Return no markdown, explanation, FIM delimiter, prefix, or suffix.";
+const FORWARDED_OPTIONS = ["temperature", "top_p", "seed", "presence_penalty", "frequency_penalty"];
 
 export function parseCompletionPrompt(prompt) {
   const markerCounts = FIM_MARKERS.map((marker) => prompt.split(marker).length - 1);
@@ -72,7 +73,7 @@ function stripStructuralLeakage(content) {
 }
 
 export function normalizeCompletionResponse(chatResponse, request) {
-  const content = stripStructuralLeakage(chatResponse.choices?.[0]?.message?.content || "");
+  const content = stripStructuralLeakage(chatResponse.choices[0].message.content);
   const stops = typeof request.stop === "string" ? [request.stop] : request.stop || [];
   const stopIndexes = stops
     .map((stop) => content.indexOf(stop))
@@ -84,7 +85,7 @@ export function normalizeCompletionResponse(chatResponse, request) {
     id: chatResponse.id?.replace(/^chatcmpl-/, "cmpl-") || chatResponse.id,
     object: "text_completion",
     created: chatResponse.created,
-    model: chatResponse.model,
+    model: request.model,
     choices: [{
       text,
       index: choice.index || 0,
@@ -97,6 +98,12 @@ export function normalizeCompletionResponse(chatResponse, request) {
 
 function completionUserMessage({ prefix, suffix }) {
   return `PREFIX:\n${prefix}\n\nHOLE:\n\n\nSUFFIX:\n${suffix}`;
+}
+
+function loggingHeaders(headers) {
+  return Object.fromEntries([...headers.entries()].filter(([name]) =>
+    !["authorization", "cookie", "x-api-key", "api-key"].some((sensitive) => name.toLowerCase().includes(sensitive))
+  ));
 }
 
 export async function handleCompletion(request) {
@@ -141,6 +148,9 @@ export async function handleCompletion(request) {
     ...(validation.stops !== undefined && { stop: validation.stops }),
     ...(capability.disableThinking === "enable_thinking" && { enable_thinking: false }),
   };
+  for (const option of FORWARDED_OPTIONS) {
+    if (body[option] !== undefined) chatBody[option] = body[option];
+  }
   const chatRequest = new Request(new URL("/api/v1/chat/completions", request.url), {
     method: "POST",
     headers: request.headers,
@@ -149,7 +159,7 @@ export async function handleCompletion(request) {
   const response = await handleChat(chatRequest, {
     endpoint: "/v1/completions",
     body,
-    headers: Object.fromEntries(request.headers.entries()),
+    headers: loggingHeaders(request.headers),
   });
   if (!response.ok) return response;
 
@@ -158,6 +168,9 @@ export async function handleCompletion(request) {
     chatResponse = await response.json();
   } catch {
     return errorResponse(502, "Invalid JSON response from chat completion");
+  }
+  if (typeof chatResponse?.choices?.[0]?.message?.content !== "string") {
+    return errorResponse(502, "Invalid response from chat completion");
   }
   return new Response(JSON.stringify(normalizeCompletionResponse(chatResponse, body)), {
     headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },

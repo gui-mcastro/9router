@@ -21,6 +21,7 @@ export default {
     quirks: { preserveCacheControl: true },
   },
   models: [
+    { id: "deepseek-v4-flash-0731", name: "DeepSeek V4 Flash 0731" },
     { id: "qwen3.5-plus", name: "Qwen3.5 Plus" },
     { id: "kimi-k2.5", name: "Kimi K2.5" },
     { id: "glm-5", name: "GLM 5" },

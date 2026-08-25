@@ -15,6 +15,11 @@ const phpStormPayload = {
   prompt: "<｜fim▁end｜>\n}<｜fim▁begin｜><?php\n\nfunction calculateTotal($items)\n{\n\n    <｜fim▁hole｜>",
   stream: false,
   max_tokens: 128,
+  temperature: 0.2,
+  top_p: 0.9,
+  seed: 7,
+  presence_penalty: 0.1,
+  frequency_penalty: 0.2,
   stop: ["\n\n", "<｜fim▁begin｜>", "<｜fim▁end｜>", "<｜fim▁hole｜>"],
 };
 
@@ -59,7 +64,14 @@ describe("handleCompletion", () => {
       max_tokens: 128,
       stop: phpStormPayload.stop,
       enable_thinking: false,
+      temperature: 0.2,
+      top_p: 0.9,
+      seed: 7,
+      presence_penalty: 0.1,
+      frequency_penalty: 0.2,
     });
+    expect(handleChat.mock.calls[0][0].headers.get("authorization")).toBe("Bearer test-key");
+    expect(handleChat.mock.calls[0][1].headers.authorization).toBeUndefined();
     expect(delegated.messages).toHaveLength(2);
     expect(delegated.messages[0].role).toBe("system");
     expect(delegated.messages[1].content).toContain("PREFIX");
@@ -89,5 +101,12 @@ describe("handleCompletion", () => {
     const response = await handleCompletion(request(phpStormPayload));
     expect(response.status).toBe(401);
     expect((await error(response)).error.message).toBe("Invalid API key");
+  });
+
+  it("returns 502 when chat succeeds without completion content", async () => {
+    handleChat.mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: {} }] }), {
+      headers: { "content-type": "application/json" },
+    }));
+    expect((await handleCompletion(request(phpStormPayload))).status).toBe(502);
   });
 });

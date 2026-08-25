@@ -121,6 +121,10 @@ const CODEX_GPT_56_DEFAULT_CAPS = { vision: true, reasoning: true, search: true,
  * Provider-specific capability overrides. Keyed by provider alias/id.
  */
 export const PROVIDER_CAPABILITIES = {
+  "alims-intl": {
+    // DashScope DeepSeek V4 uses enable_thinking:false, the same wire control as Qwen.
+    "deepseek-v4-flash-0731": { reasoning: true, thinkingFormat: "qwen", contextWindow: 1000000 },
+  },
   // NVIDIA NIM is OpenAI-compatible → rejects MiniMax/GLM native `thinking` field.
   // Force openai reasoning_effort format for its reasoning models. #issue
   "nvidia": {

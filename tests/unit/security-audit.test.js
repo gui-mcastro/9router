@@ -6,17 +6,19 @@ import path from "path";
 // AUDIT-002 (#1962): API key masking in usage stats
 // ============================================================
 describe("AUDIT-002: API key masking", () => {
-  it("source should contain maskApiKey function", () => {
+  it("maskApiKey lives in the redaction module used by usageRepo", () => {
     const source = fs.readFileSync(
-      path.resolve("src/lib/db/repos/usageRepo.js"),
+      new URL("../../src/lib/db/repos/usageApiKeyRedaction.js", import.meta.url),
       "utf-8"
     );
-    expect(source).toContain("function maskApiKey");
+    expect(source).toContain("export function maskApiKey");
+    const repoSource = fs.readFileSync(new URL("../../src/lib/db/repos/usageRepo.js", import.meta.url), "utf-8");
+    expect(repoSource).toContain("redactByApiKey(stats.byApiKey");
   });
 
   it("getUsageHistory should use apiKeyMasked instead of apiKey", () => {
     const source = fs.readFileSync(
-      path.resolve("src/lib/db/repos/usageRepo.js"),
+      new URL("../../src/lib/db/repos/usageRepo.js", import.meta.url),
       "utf-8"
     );
     // The REST response should use apiKeyMasked
@@ -27,36 +29,6 @@ describe("AUDIT-002: API key masking", () => {
     expect(historyReturn).not.toBeNull();
     expect(historyReturn[0]).toContain("apiKeyMasked");
     expect(historyReturn[0]).not.toContain("apiKey: r.apiKey");
-  });
-
-  it("getUsageStats should use apiKeyMasked in byApiKey entries", () => {
-    const source = fs.readFileSync(
-      path.resolve("src/lib/db/repos/usageRepo.js"),
-      "utf-8"
-    );
-    // Both code paths (daily summary + 24h live) should use apiKeyMasked
-    const maskedCount = (source.match(/apiKeyMasked/g) || []).length;
-    expect(maskedCount).toBeGreaterThanOrEqual(4); // function def + 3 usage sites
-
-    // The byApiKey stats entries should use apiKeyMasked, not raw apiKey
-    // Check the daily summary path
-    const dailyPath = source.match(/stats\.byApiKey\[akKey\] = \{[^}]*apiKeyMasked[^}]*\}/);
-    expect(dailyPath).not.toBeNull();
-    // Check the 24h live path
-    const livePath = source.match(/stats\.byApiKey\[akKey\] = \{[^}]*apiKeyMasked[^}]*\}/g);
-    expect(livePath).not.toBeNull();
-    expect(livePath.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it("byApiKey object keys should use masked key, not raw key", () => {
-    const source = fs.readFileSync(
-      path.resolve("src/lib/db/repos/usageRepo.js"),
-      "utf-8"
-    );
-    // The 24h path should use apiKeyMasked in the akKey template
-    expect(source).toContain("${apiKeyMasked}|${r.model}|${r.provider");
-    // Should NOT use raw r.apiKey in the key
-    expect(source).not.toContain("${r.apiKey}|${r.model}|${r.provider");
   });
 });
 

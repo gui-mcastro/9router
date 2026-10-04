@@ -2,13 +2,8 @@ import { EventEmitter } from "events";
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 import { getMeta, setMeta } from "../helpers/metaStore.js";
-
-function maskApiKey(key) {
-  if (!key || typeof key !== "string") return null;
-  if (key.length <= 12) return key.charAt(0) + "***";
-  // Keep the tail: keys sharing a machine-id prefix (team keys) must not collide.
-  return key.slice(0, 8) + "***" + key.slice(-4);
-}
+import { buildUsageFilterSql } from "../../usageFilter.js";
+import { maskApiKey, redactByApiKey } from "./usageApiKeyRedaction.js";
 
 const PENDING_TIMEOUT_MS = 60 * 1000;
 const RING_CAP = 50;
@@ -352,8 +347,23 @@ function loadDaysInRange(adapter, maxDays) {
   return adapter.all(`SELECT dateKey, data FROM usageDaily WHERE dateKey >= ? ORDER BY dateKey ASC`, [cutoffKey]);
 }
 
-export async function getUsageStats(period = "all") {
+// Start of the history window for a period. Calendar-day periods start at local
+// midnight so filtered (history) and unfiltered (usageDaily) results cover the same days.
+function historyCutoffIso(period) {
+  if (period === "24h") return new Date(Date.now() - PERIOD_MS["24h"]).toISOString();
+  if (period === "all") return new Date(0).toISOString();
+  const days = { today: 1, "7d": 7, "30d": 30, "60d": 60 }[period] ?? 1;
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - (days - 1));
+  return start.toISOString();
+}
+
+export async function getUsageStats(period = "all", resolvedFilter = null) {
   const db = await getAdapter();
+  const filterSql = buildUsageFilterSql(resolvedFilter);
+  const fWhere = filterSql.sql ? ` AND ${filterSql.sql}` : "";
+  const fParams = filterSql.params;
 
   const [{ getProviderConnections }, { getApiKeys }, { getProviderNodes }] = await Promise.all([
     import("./connectionsRepo.js"),
@@ -378,7 +388,7 @@ export async function getUsageStats(period = "all") {
   for (const k of allApiKeys) apiKeyMap[k.key] = { name: k.name, id: k.id, createdAt: k.createdAt };
 
   // recentRequests from live history (last 100 entries enough for 20 deduped)
-  const recentRows = db.all(`SELECT timestamp, provider, model, tokens, status FROM usageHistory ORDER BY id DESC LIMIT 100`);
+  const recentRows = db.all(`SELECT timestamp, provider, model, tokens, status, endpoint, httpStatus, kind FROM usageHistory WHERE 1 = 1${fWhere} ORDER BY id DESC LIMIT 100`, fParams);
   const seen = new Set();
   const recentRequests = recentRows
     .map((r) => {
@@ -389,12 +399,12 @@ export async function getUsageStats(period = "all") {
         completionTokens: t.completion_tokens || t.output_tokens || 0,
         cachedTokens: t.cached_tokens || t.cache_read_input_tokens || 0,
         status: r.status || "ok",
+        endpoint: r.endpoint, httpStatus: r.httpStatus ?? null, kind: r.kind || "work",
       };
     })
+    // Every row is a real request now (errors and media carry zero tokens); only drop exact duplicates.
     .filter((e) => {
-      if (e.promptTokens === 0 && e.completionTokens === 0) return false;
-      const minute = e.timestamp ? e.timestamp.slice(0, 16) : "";
-      const key = `${e.model}|${e.provider}|${e.promptTokens}|${e.completionTokens}|${minute}`;
+      const key = `${e.timestamp}|${e.model}|${e.provider}|${e.endpoint}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -438,8 +448,8 @@ export async function getUsageStats(period = "all") {
     stats.last10Minutes.push(bucketMap[ts]);
   }
   const recent10 = db.all(
-    `SELECT timestamp, promptTokens, completionTokens, cost FROM usageHistory WHERE timestamp >= ? AND timestamp <= ?`,
-    [tenMinutesAgo.toISOString(), now.toISOString()]
+    `SELECT timestamp, promptTokens, completionTokens, cost FROM usageHistory WHERE timestamp >= ? AND timestamp <= ?${fWhere}`,
+    [tenMinutesAgo.toISOString(), now.toISOString(), ...fParams]
   );
   for (const r of recent10) {
     const tt = new Date(r.timestamp).getTime();
@@ -452,7 +462,8 @@ export async function getUsageStats(period = "all") {
     }
   }
 
-  const useDailySummary = period !== "24h" && period !== "today";
+  // Daily rollups cannot be filtered by key/provider combos: any active filter aggregates history rows.
+  const useDailySummary = !resolvedFilter?.active && period !== "24h" && period !== "today";
 
   if (useDailySummary) {
     const periodDays = { "7d": 7, "30d": 30, "60d": 60 };
@@ -580,18 +591,11 @@ export async function getUsageStats(period = "all") {
       if (stats.byEndpoint[endpointKey] && new Date(ts) > new Date(stats.byEndpoint[endpointKey].lastUsed)) stats.byEndpoint[endpointKey].lastUsed = ts;
     }
   } else {
-    // 24h / today: live history
-    let cutoff;
-    if (period === "today") {
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
-      cutoff = startOfDay.toISOString();
-    } else {
-      cutoff = new Date(Date.now() - PERIOD_MS["24h"]).toISOString();
-    }
+    // 24h / today, or any period with an active filter: exact aggregation from history
+    const cutoff = historyCutoffIso(period);
     const filtered = db.all(
-      `SELECT timestamp, provider, model, connectionId, apiKey, endpoint, promptTokens, completionTokens, cost, tokens FROM usageHistory WHERE timestamp >= ?`,
-      [cutoff]
+      `SELECT timestamp, provider, model, connectionId, apiKey, endpoint, promptTokens, completionTokens, cost, tokens FROM usageHistory WHERE timestamp >= ?${fWhere}`,
+      [cutoff, ...fParams]
     );
 
     for (const r of filtered) {
@@ -673,6 +677,9 @@ export async function getUsageStats(period = "all") {
   }
 
   stats.totalRequests = Object.values(stats.byProvider).reduce((sum, p) => sum + (p.requests || 0), 0);
+  stats.byApiKey = redactByApiKey(stats.byApiKey, allApiKeys);
+  stats.apiKeyCatalog = allApiKeys.map(({ id, name, isActive, tags }) => ({ id, name, isActive, tags: tags || [] }));
+  stats.filterActive = !!resolvedFilter?.active;
   return stats;
 }
 

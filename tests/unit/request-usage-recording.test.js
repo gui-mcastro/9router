@@ -122,6 +122,30 @@ describe("withRequestUsage", () => {
     await vi.waitFor(() => expect(rows()).toHaveLength(1));
     expect(rows()[0]).toMatchObject({ kind: "meta", provider: "9router", status: "ok", apiKey: "sk-meta" });
     expect(adapter.all(`SELECT dateKey FROM usageDaily`)).toEqual([]);
+    expect(adapter.get(`SELECT value FROM _meta WHERE key = 'totalRequestsLifetime'`)).toBeUndefined();
+  });
+
+  it("counts work rows in the daily rollup and lifetime counter", async () => {
+    const handler = requestUsage.withRequestUsage(async () => new Response("ok"));
+    await handler(req("POST", "/v1/audio/speech"));
+    await vi.waitFor(() => expect(rows()).toHaveLength(1));
+    expect(adapter.all(`SELECT dateKey FROM usageDaily`)).toHaveLength(1);
+    expect(adapter.get(`SELECT value FROM _meta WHERE key = 'totalRequestsLifetime'`).value).toBe("1");
+  });
+
+  it("keeps distinct requests that land in the same millisecond", async () => {
+    const { saveRequestUsage } = await import("@/lib/usageDb.js");
+    const base = { provider: "9router", model: "unknown", apiKey: "sk-same", status: "ok", httpStatus: 200, kind: "meta", tokens: { prompt_tokens: 0, completion_tokens: 0 } };
+    const at = "2026-01-01T00:00:00.000Z";
+    await saveRequestUsage({ ...base, timestamp: at, endpoint: "/v1/models", dedupe: false });
+    await saveRequestUsage({ ...base, timestamp: at, endpoint: "/v1/models/info", dedupe: false });
+    expect(rows()).toHaveLength(2);
+
+    // Legacy callers (chatCore) still dedupe identical rows.
+    const legacyAt = "2026-01-01T00:00:01.000Z";
+    await saveRequestUsage({ ...base, kind: "work", timestamp: legacyAt, endpoint: "/v1/chat/completions" });
+    await saveRequestUsage({ ...base, kind: "work", timestamp: legacyAt, endpoint: "/v1/chat/completions" });
+    expect(rows()).toHaveLength(3);
   });
 
   it("records requests rejected before routing", async () => {

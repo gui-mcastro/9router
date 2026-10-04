@@ -64,6 +64,8 @@ function recordOutcome(record, httpStatus) {
       status: ok ? "ok" : "error",
       httpStatus,
       kind: record.kind,
+      // Wrapper rows are one per request by construction; never collapse them with a same-millisecond twin.
+      dedupe: false,
     }))
     .catch(() => {});
 }

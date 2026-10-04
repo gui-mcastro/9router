@@ -8,6 +8,7 @@ export default defineConfig({
   test: {
     environment: "node",
     globals: true,
+    setupFiles: ["./setup/isolate-home.js"],
     include: ["**/*.test.js"],
     // Don't scan into git worktrees nested under .claude/ — they carry their
     // own copies of the test files but lack an installed node_modules (open-sse,

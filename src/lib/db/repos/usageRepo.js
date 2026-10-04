@@ -123,11 +123,11 @@ async function ensureRingInitialized() {
   recentRing.initialized = true;
   try {
     const db = await getAdapter();
-    const rows = db.all(`SELECT timestamp, provider, model, connectionId, apiKey, endpoint, cost, status, tokens FROM usageHistory ORDER BY id DESC LIMIT ?`, [RING_CAP]);
+    const rows = db.all(`SELECT timestamp, provider, model, connectionId, apiKey, endpoint, cost, status, tokens, kind, httpStatus FROM usageHistory ORDER BY id DESC LIMIT ?`, [RING_CAP]);
     recentRing.items = rows.reverse().map((r) => ({
       timestamp: r.timestamp, provider: r.provider, model: r.model, connectionId: r.connectionId,
       apiKey: r.apiKey, endpoint: r.endpoint, cost: r.cost, status: r.status,
-      tokens: parseJson(r.tokens, {}),
+      tokens: parseJson(r.tokens, {}), kind: r.kind, httpStatus: r.httpStatus,
     }));
   } catch {}
 }
@@ -279,15 +279,23 @@ export async function saveRequestUsage(entry) {
         return;
       }
 
+      const kind = entry.kind === "meta" ? "meta" : "work";
       db.run(
-        `INSERT INTO usageHistory(timestamp, provider, model, connectionId, apiKey, endpoint, promptTokens, completionTokens, cost, status, tokens, meta) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO usageHistory(timestamp, provider, model, connectionId, apiKey, endpoint, promptTokens, completionTokens, cost, status, tokens, meta, kind, httpStatus) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           entry.timestamp, entry.provider || null, entry.model || null,
           entry.connectionId || null, entry.apiKey || null, entry.endpoint || null,
           promptTokens, completionTokens, entry.cost || 0, entry.status || "ok",
           stringifyJson(tokens), stringifyJson({}),
+          kind, Number.isInteger(entry.httpStatus) ? entry.httpStatus : null,
         ]
       );
+
+      // Metadata requests stay out of the daily rollup and lifetime counter, which back the work-only dashboard.
+      if (kind === "meta") {
+        inserted = true;
+        return;
+      }
 
       const dateKey = getLocalDateKey(entry.timestamp);
       const row = db.get(`SELECT data FROM usageDaily WHERE dateKey = ?`, [dateKey]);

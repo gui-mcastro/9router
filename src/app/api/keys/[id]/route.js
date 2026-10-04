@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { deleteApiKey, getApiKeyById, updateApiKey } from "@/lib/localDb";
+import { normalizeApiKeyTags } from "@/lib/apiKeyTags";
 
 // GET /api/keys/[id] - Get single key
 export async function GET(request, { params }) {
@@ -21,7 +22,7 @@ export async function PUT(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
-    const { isActive } = body;
+    const { isActive, tags } = body;
 
     const existing = await getApiKeyById(id);
     if (!existing) {
@@ -30,6 +31,13 @@ export async function PUT(request, { params }) {
 
     const updateData = {};
     if (isActive !== undefined) updateData.isActive = isActive;
+    if (tags !== undefined) {
+      try {
+        updateData.tags = normalizeApiKeyTags(tags);
+      } catch (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+    }
 
     const updated = await updateApiKey(id, updateData);
 

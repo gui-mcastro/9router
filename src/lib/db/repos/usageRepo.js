@@ -683,9 +683,11 @@ export async function getUsageStats(period = "all", resolvedFilter = null) {
   return stats;
 }
 
-export async function getChartData(period = "7d") {
+export async function getChartData(period = "7d", resolvedFilter = null) {
   const db = await getAdapter();
   const now = Date.now();
+  const filterSql = buildUsageFilterSql(resolvedFilter);
+  const fWhere = filterSql.sql ? ` AND ${filterSql.sql}` : "";
 
   if (period === "today") {
     const bucketCount = 24;
@@ -698,8 +700,8 @@ export async function getChartData(period = "7d") {
     const buckets = Array.from({ length: bucketCount }, (_, i) => ({ label: labelFn(startTime + i * bucketMs), tokens: 0, cost: 0, requests: 0 }));
 
     const rows = db.all(
-      `SELECT timestamp, promptTokens, completionTokens, cost FROM usageHistory WHERE timestamp >= ?`,
-      [new Date(startTime).toISOString()]
+      `SELECT timestamp, promptTokens, completionTokens, cost FROM usageHistory WHERE timestamp >= ?${fWhere}`,
+      [new Date(startTime).toISOString(), ...filterSql.params]
     );
     for (const r of rows) {
       const t = new Date(r.timestamp).getTime();
@@ -722,8 +724,8 @@ export async function getChartData(period = "7d") {
     const buckets = Array.from({ length: bucketCount }, (_, i) => ({ label: labelFn(startTime + i * bucketMs), tokens: 0, cost: 0, requests: 0 }));
 
     const rows = db.all(
-      `SELECT timestamp, promptTokens, completionTokens, cost FROM usageHistory WHERE timestamp >= ?`,
-      [new Date(startTime).toISOString()]
+      `SELECT timestamp, promptTokens, completionTokens, cost FROM usageHistory WHERE timestamp >= ?${fWhere}`,
+      [new Date(startTime).toISOString(), ...filterSql.params]
     );
     for (const r of rows) {
       const t = new Date(r.timestamp).getTime();
@@ -737,6 +739,39 @@ export async function getChartData(period = "7d") {
   }
 
   const labelFn = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  // Filtered daily periods: usageDaily cannot be sliced by key/provider/kind, so bucket history rows by local day.
+  if (resolvedFilter?.active) {
+    const days = { "7d": 7, "30d": 30, "60d": 60 }[period] ?? null;
+    const first = new Date();
+    first.setHours(0, 0, 0, 0);
+    if (days) first.setDate(first.getDate() - (days - 1));
+    const rows = db.all(
+      `SELECT timestamp, promptTokens, completionTokens, cost FROM usageHistory WHERE timestamp >= ?${fWhere} ORDER BY timestamp ASC`,
+      [days ? first.toISOString() : new Date(0).toISOString(), ...filterSql.params]
+    );
+    if (!days) {
+      if (!rows.length) return [];
+      first.setTime(new Date(rows[0].timestamp).getTime());
+      first.setHours(0, 0, 0, 0);
+    }
+    const byDay = {};
+    for (const r of rows) {
+      const b = (byDay[getLocalDateKey(r.timestamp)] ||= { tokens: 0, cost: 0, requests: 0 });
+      b.tokens += (r.promptTokens || 0) + (r.completionTokens || 0);
+      b.cost += r.cost || 0;
+      b.requests += 1;
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const count = Math.max(1, Math.round((today - first) / 86400000) + 1);
+    return Array.from({ length: count }, (_, i) => {
+      const d = new Date(first);
+      d.setDate(d.getDate() + i);
+      const b = byDay[getLocalDateKey(d.toISOString())];
+      return { label: labelFn(d), tokens: b?.tokens || 0, cost: b?.cost || 0, requests: b?.requests || 0 };
+    });
+  }
 
   if (period === "all") {
     const dayRows = loadDaysInRange(db, null);

@@ -2,7 +2,7 @@ import { EventEmitter } from "events";
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 import { getMeta, setMeta } from "../helpers/metaStore.js";
-import { buildUsageFilterSql } from "../../usageFilter.js";
+import { buildUsageFilterSql, matchesUsageFilter } from "../../usageFilter.js";
 import { maskApiKey, redactByApiKey } from "./usageApiKeyRedaction.js";
 
 const PENDING_TIMEOUT_MS = 60 * 1000;
@@ -189,7 +189,7 @@ export function trackPendingRequest(model, provider, connectionId, started, erro
   scheduleStatsEvent("pending");
 }
 
-export async function getActiveRequests() {
+export async function getActiveRequests(resolvedFilter = null) {
   const activeRequests = [];
   const connectionMap = await getConnectionMapCached();
 
@@ -198,9 +198,12 @@ export async function getActiveRequests() {
       if (count > 0) {
         const accountName = connectionMap[connectionId] || `Account ${connectionId.slice(0, 8)}...`;
         const match = modelKey.match(/^(.*) \((.*)\)$/);
+        const provider = match ? match[2] : "unknown";
+        // In-flight tracking has no API key: only the provider dimension applies here.
+        if (resolvedFilter?.providers && !resolvedFilter.providers.has(provider.toLowerCase())) continue;
         activeRequests.push({
           model: match ? match[1] : modelKey,
-          provider: match ? match[2] : "unknown",
+          provider,
           account: accountName, count,
         });
       }
@@ -210,6 +213,7 @@ export async function getActiveRequests() {
   await ensureRingInitialized();
   const seen = new Set();
   const recentRequests = [...recentRing.items]
+    .filter((e) => matchesUsageFilter(resolvedFilter, e))
     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
     .map((e) => {
       const t = e.tokens || {};
@@ -218,12 +222,12 @@ export async function getActiveRequests() {
         promptTokens: t.prompt_tokens || t.input_tokens || 0,
         completionTokens: t.completion_tokens || t.output_tokens || 0,
         status: e.status || "ok",
+        endpoint: e.endpoint, httpStatus: e.httpStatus ?? null, kind: e.kind || "work",
       };
     })
+    // Every row is a real request now (errors and media carry zero tokens); only drop exact duplicates.
     .filter((e) => {
-      if (e.promptTokens === 0 && e.completionTokens === 0) return false;
-      const minute = e.timestamp ? e.timestamp.slice(0, 16) : "";
-      const key = `${e.model}|${e.provider}|${e.promptTokens}|${e.completionTokens}|${minute}`;
+      const key = `${e.timestamp}|${e.model}|${e.provider}|${e.endpoint}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;

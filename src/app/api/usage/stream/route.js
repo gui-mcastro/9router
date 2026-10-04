@@ -1,4 +1,5 @@
 import { getUsageStats, statsEmitter, getActiveRequests } from "@/lib/usageDb";
+import { getResolvedUsageFilter } from "@/lib/db/repos/usageFilterRepo.js";
 
 export const dynamic = "force-dynamic";
 
@@ -13,13 +14,14 @@ export async function GET() {
         if (state.closed) return;
         try {
           // Push lightweight update immediately so UI reflects changes fast
+          const resolved = await getResolvedUsageFilter();
           if (state.cachedStats) {
-            const { activeRequests, recentRequests, errorProvider } = await getActiveRequests();
+            const { activeRequests, recentRequests, errorProvider } = await getActiveRequests(resolved);
             const quickStats = { ...state.cachedStats, activeRequests, recentRequests, errorProvider };
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(quickStats)}\n\n`));
           }
           // Then do full recalc and update cache
-          const stats = await getUsageStats();
+          const stats = await getUsageStats("all", resolved);
           state.cachedStats = stats;
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(stats)}\n\n`));
         } catch {
@@ -34,7 +36,7 @@ export async function GET() {
       state.sendPending = async () => {
         if (state.closed || !state.cachedStats) return;
         try {
-          const { activeRequests, recentRequests, errorProvider } = await getActiveRequests();
+          const { activeRequests, recentRequests, errorProvider } = await getActiveRequests(await getResolvedUsageFilter());
           const stats = { ...state.cachedStats, activeRequests, recentRequests, errorProvider };
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(stats)}\n\n`));
         } catch {

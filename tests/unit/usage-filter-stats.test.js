@@ -135,6 +135,17 @@ describe("getUsageStats request kinds and recent requests", () => {
     expect((await statsWith({ requestKind: "all" })).totalRequests).toBe(5);
   });
 
+  it("metadata rows never bump lastUsed on the daily (7d) path", async () => {
+    const metaTs = new Date(Date.now() + 60000).toISOString();
+    await db.saveRequestUsage({ provider: "openai", model: "openai-model", connectionId: "c1", apiKey: a.key, endpoint: "/v1/chat/completions", tokens: { prompt_tokens: 0, completion_tokens: 0 }, status: "error", httpStatus: 401, kind: "meta", timestamp: metaTs });
+    const s = await db.getUsageStats("7d");
+    expect(s.filterActive).toBe(false);
+    expect(s.byModel["openai-model (openai)"]).toBeDefined();
+    for (const group of [s.byModel, s.byAccount, s.byApiKey, s.byEndpoint]) {
+      for (const row of Object.values(group)) expect(row.lastUsed).not.toBe(metaTs);
+    }
+  });
+
   it("lists zero-token rows such as errors in recent requests", async () => {
     await db.saveRequestUsage({ provider: "openai", model: "broken-model", apiKey: a.key, endpoint: "/v1/chat/completions", tokens: { prompt_tokens: 0, completion_tokens: 0 }, status: "error", httpStatus: 503, kind: "work" });
     const s = await db.getUsageStats("today");

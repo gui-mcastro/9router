@@ -571,7 +571,8 @@ export async function getUsageStats(period = "all", resolvedFilter = null) {
       Date.now() - OVERLAY_WINDOW_MS
     );
     const histRows = db.all(
-      `SELECT timestamp, provider, model, connectionId, apiKey, endpoint FROM usageHistory WHERE timestamp >= ?`,
+      // usageDaily holds work rows only; metadata/refused rows must not bump its lastUsed.
+      `SELECT timestamp, provider, model, connectionId, apiKey, endpoint FROM usageHistory WHERE timestamp >= ? AND kind = 'work'`,
       [new Date(overlayCutoff).toISOString()]
     );
     for (const e of histRows) {

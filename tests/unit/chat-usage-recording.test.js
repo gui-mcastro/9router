@@ -17,7 +17,11 @@ vi.mock("../../src/sse/services/auth.js", () => ({
   getProviderCredentials: mocks.getProviderCredentials,
   markAccountUnavailable: mocks.markAccountUnavailable,
   clearAccountError: vi.fn(),
-  extractApiKey: () => "client-key",
+  // Mirrors the real extractor: Bearer or x-api-key only.
+  extractApiKey: (request) => {
+    const auth = request.headers.get("authorization");
+    return auth?.startsWith("Bearer ") ? auth.slice(7) : request.headers.get("x-api-key");
+  },
   isValidApiKey: async () => true,
 }));
 vi.mock("../../src/sse/services/antigravityQuota.js", () => ({ handleAntigravityQuotaError: vi.fn(), clearAntigravityStrikes: vi.fn() }));
@@ -138,6 +142,18 @@ describe("chat requests through the route wrapper", () => {
     expect(res.status).toBe(200);
     await settle();
     expect(mocks.saveRequestUsage).not.toHaveBeenCalled();
+  });
+
+  it("hands chatCore the key from any source the wrapper reads (x-goog-api-key)", async () => {
+    mocks.handleChatCore.mockResolvedValue({ success: true, response: new Response("ok") });
+    const res = await POST(new Request("http://localhost/v1/chat/completions", {
+      method: "POST",
+      headers: { "x-goog-api-key": "gkey", "content-type": "application/json" },
+      body: JSON.stringify({ model: "openai/gpt-x", messages: [] }),
+    }));
+    expect(res.status).toBe(200);
+    expect(mocks.handleChatCore).toHaveBeenCalledTimes(1);
+    expect(mocks.handleChatCore.mock.calls[0][0].apiKey).toBe("gkey");
   });
 
   it("records a provider failure with provider, model and account", async () => {

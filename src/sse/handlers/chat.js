@@ -279,7 +279,8 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       clientRawRequest,
       connectionId: credentials.connectionId,
       userAgent,
-      apiKey,
+      // Recording only: the wrapper also reads x-goog-api-key / ?key=, so success rows carry the same key as error rows.
+      apiKey: currentRequestUsage()?.apiKey ?? apiKey,
       ccFilterNaming: !!chatSettings.ccFilterNaming,
       rtkEnabled: !!chatSettings.rtkEnabled,
       headroomEnabled: !!chatSettings.headroomEnabled,

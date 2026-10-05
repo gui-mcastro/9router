@@ -14,6 +14,8 @@ import Badge from "./Badge";
 import Card from "./Card";
 import OverviewCards from "@/app/(dashboard)/dashboard/usage/components/OverviewCards";
 import UsageTable, { fmt, fmtTime } from "@/app/(dashboard)/dashboard/usage/components/UsageTable";
+import ApiKeyRankingCard from "@/app/(dashboard)/dashboard/usage/components/ApiKeyRankingCard";
+import { onlyApiKey, onlyTag } from "@/app/(dashboard)/dashboard/usage/components/usageFilterState";
 import dynamic from "next/dynamic";
 // Lazy-load: keeps @xyflow/react and recharts out of the initial bundle
 const ProviderTopology = dynamic(() => import("@/app/(dashboard)/dashboard/usage/components/ProviderTopology"), { ssr: false });
@@ -504,6 +506,15 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
           <ProviderBarChart byProvider={stats.byProvider} />
           <TopModelsChart byModel={stats.byModel} />
         </div>
+      )}
+
+      {!loading && stats.byApiKey && (
+        <ApiKeyRankingCard
+          byApiKey={stats.byApiKey}
+          catalog={stats.apiKeyCatalog || []}
+          onSelectKey={setFilter && filter ? (id) => setFilter(onlyApiKey(filter, id)) : undefined}
+          onSelectTag={setFilter && filter ? (tag) => setFilter(onlyTag(filter, tag)) : undefined}
+        />
       )}
 
       {/* Table with dropdown selector */}

@@ -1,4 +1,5 @@
 import { handleTts } from "@/sse/handlers/tts.js";
+import { withRequestUsage } from "@/lib/requestUsage.js";
 
 export async function OPTIONS() {
   return new Response(null, {
@@ -11,6 +12,8 @@ export async function OPTIONS() {
 }
 
 /** POST /v1/audio/speech - OpenAI-compatible TTS endpoint */
-export async function POST(request) {
+async function handlePost(request) {
   return await handleTts(request);
 }
+
+export const POST = withRequestUsage(handlePost);

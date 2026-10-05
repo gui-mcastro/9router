@@ -13,6 +13,7 @@ import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { handleComboChat } from "open-sse/services/combo.js";
 import * as log from "../utils/logger.js";
+import { currentRequestUsage } from "@/lib/requestUsage.js";
 
 // Providers that don't require credentials (noAuth)
 const NO_AUTH_PROVIDERS = new Set(["sdwebui", "comfyui"]);
@@ -72,6 +73,7 @@ async function handleSingleModelImage(body, modelStr, { wantsStream, binaryOutpu
   if (!modelInfo.provider) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format");
 
   const { provider, model } = modelInfo;
+  currentRequestUsage()?.set({ provider, model });
 
   // noAuth providers — no credential needed
   if (NO_AUTH_PROVIDERS.has(provider)) {
@@ -104,6 +106,8 @@ async function handleSingleModelImage(body, modelStr, { wantsStream, binaryOutpu
       }
       return errorResponse(lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE, lastError || "All accounts unavailable");
     }
+
+    currentRequestUsage()?.set({ connectionId: credentials.connectionId });
 
     const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
 

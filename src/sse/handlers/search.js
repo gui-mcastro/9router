@@ -13,6 +13,7 @@ import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { handleComboChat, getComboModelsFromData } from "open-sse/services/combo.js";
+import { currentRequestUsage } from "@/lib/requestUsage.js";
 
 /**
  * Handle web search request for the SSE/Next.js server.
@@ -108,6 +109,8 @@ async function handleSingleProviderSearch(body, providerInput, request, apiKey, 
     return errorResponse(HTTP_STATUS.BAD_REQUEST, `Provider ${providerId} does not support web search`);
   }
 
+  currentRequestUsage()?.set({ provider: providerId, model: providerInput });
+
   if (providerInput !== providerId) {
     log.info("ROUTING", `${providerInput} → ${providerId}`);
   } else {
@@ -190,6 +193,8 @@ async function handleSingleProviderSearch(body, providerInput, request, apiKey, 
       log.warn("SEARCH", "No more accounts available", { provider: providerId });
       return errorResponse(lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE, lastError || "All accounts unavailable");
     }
+
+    currentRequestUsage()?.set({ connectionId: credentials.connectionId });
 
     log.info("AUTH", `\x1b[32mUsing ${providerId} account: ${credentials.connectionName}\x1b[0m`);
 

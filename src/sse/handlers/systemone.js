@@ -12,7 +12,7 @@ import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import * as log from "../utils/logger.js";
 import { checkAndRefreshToken } from "../services/tokenRefresh.js";
-import { saveRequestUsage } from "@/lib/usageDb.js";
+import { currentRequestUsage } from "@/lib/requestUsage.js";
 
 /**
  * Handle System One (Jev) decision requests for the Next.js server.
@@ -74,6 +74,7 @@ export async function handleSystemone(request) {
   }
 
   const { provider, model } = modelInfo;
+  currentRequestUsage()?.set({ provider, model });
 
   if (modelStr !== `${provider}/${model}`) {
     log.info("ROUTING", `${modelStr} → ${provider}/${model}`);
@@ -105,6 +106,8 @@ export async function handleSystemone(request) {
       return errorResponse(lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE, lastError || "All accounts unavailable");
     }
 
+    currentRequestUsage()?.set({ connectionId: credentials.connectionId });
+
     log.info("AUTH", `\x1b[32mUsing ${provider} account: ${credentials.connectionName}\x1b[0m`);
 
     const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
@@ -121,18 +124,9 @@ export async function handleSystemone(request) {
 
     if (result.success) {
       if (result.usage) {
-        saveRequestUsage({
-          provider,
-          model,
-          connectionId: credentials.connectionId,
-          apiKey,
-          endpoint: url.pathname,
-          tokens: {
-            ...result.usage,
-            total_tokens: result.usage.prompt_tokens + result.usage.completion_tokens,
-          },
-          status: "success",
-        }).catch(() => {});
+        currentRequestUsage()?.set({
+          tokens: { ...result.usage, total_tokens: result.usage.prompt_tokens + result.usage.completion_tokens },
+        });
       }
       return result.response;
     }

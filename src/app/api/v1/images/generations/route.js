@@ -1,4 +1,5 @@
 import { handleImageGeneration } from "@/sse/handlers/imageGeneration.js";
+import { withRequestUsage } from "@/lib/requestUsage.js";
 
 export async function OPTIONS() {
   return new Response(null, {
@@ -11,6 +12,8 @@ export async function OPTIONS() {
 }
 
 /** POST /v1/images/generations - OpenAI-compatible image generation endpoint */
-export async function POST(request) {
+async function handlePost(request) {
   return await handleImageGeneration(request);
 }
+
+export const POST = withRequestUsage(handlePost);

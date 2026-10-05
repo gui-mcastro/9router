@@ -12,6 +12,7 @@ import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import * as log from "../utils/logger.js";
+import { currentRequestUsage } from "@/lib/requestUsage.js";
 
 // Video generation is xAI-only today; requests without a provider prefix
 // (bare model id, or multipart bodies we deliberately don't parse) land here.
@@ -116,6 +117,7 @@ export async function handleVideoCreate(request, action) {
   const resolved = await resolveVideoProvider(bodyInfo.parsed);
   if (resolved.error) return resolved.error;
   const { provider, model } = resolved;
+  currentRequestUsage()?.set({ provider, model });
 
   // Strip the provider prefix (e.g. "xai/grok-imagine-video") before forwarding;
   // otherwise forward the original bytes untouched.
@@ -145,6 +147,8 @@ export async function handleVideoCreate(request, action) {
       }
       return errorResponse(lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE, lastError || "All accounts unavailable");
     }
+
+    currentRequestUsage()?.set({ connectionId: credentials.connectionId });
 
     const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
 
@@ -202,6 +206,7 @@ export async function handleVideoGet(request, requestId) {
 
   const preferredConnectionId = request.headers.get("x-connection-id") || null;
   const provider = await resolveGetProvider(request, preferredConnectionId);
+  currentRequestUsage()?.set({ provider });
 
   const credentials = await getProviderCredentials(provider, null, null, { preferredConnectionId });
   if (!credentials || credentials.allRateLimited) {

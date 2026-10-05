@@ -1,4 +1,5 @@
 import { handleSearch } from "@/sse/handlers/search.js";
+import { withRequestUsage } from "@/lib/requestUsage.js";
 
 /**
  * Handle CORS preflight
@@ -16,6 +17,8 @@ export async function OPTIONS() {
 /**
  * POST /v1/search - Web search endpoint
  */
-export async function POST(request) {
+async function handlePost(request) {
   return await handleSearch(request);
 }
+
+export const POST = withRequestUsage(handlePost);

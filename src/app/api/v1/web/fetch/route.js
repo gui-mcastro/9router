@@ -1,4 +1,5 @@
 import { handleFetch } from "@/sse/handlers/fetch.js";
+import { withRequestUsage } from "@/lib/requestUsage.js";
 
 /**
  * Handle CORS preflight
@@ -16,6 +17,8 @@ export async function OPTIONS() {
 /**
  * POST /v1/web/fetch - Web URL fetch/extract endpoint
  */
-export async function POST(request) {
+async function handlePost(request) {
   return await handleFetch(request);
 }
+
+export const POST = withRequestUsage(handlePost);

@@ -37,6 +37,13 @@ vi.mock("../../src/sse/services/tokenRefresh.js", () => ({
 vi.mock("@/lib/usageDb.js", () => ({ saveRequestUsage: mocks.saveRequestUsage }));
 
 import { handleEmbeddings } from "../../src/sse/handlers/embeddings.js";
+import { withRequestUsage } from "../../src/lib/requestUsage.js";
+
+const embed = (body) => withRequestUsage(handleEmbeddings)(new Request("http://localhost/v1/embeddings", {
+  method: "POST",
+  headers: { authorization: "Bearer client-key" },
+  body: JSON.stringify(body),
+}));
 
 describe("embedding usage persistence", () => {
   beforeEach(() => {
@@ -50,20 +57,21 @@ describe("embedding usage persistence", () => {
   });
 
   it("records exact provider usage for successful embedding requests", async () => {
-    await handleEmbeddings(new Request("http://localhost/v1/embeddings", {
-      method: "POST",
-      body: JSON.stringify({ model: "openai/text-embedding-3-small", input: "hello" }),
-    }));
+    await embed({ model: "openai/text-embedding-3-small", input: "hello" });
 
-    expect(mocks.saveRequestUsage).toHaveBeenCalledWith(expect.objectContaining({
+    await vi.waitFor(() => expect(mocks.saveRequestUsage).toHaveBeenCalledTimes(1));
+    expect(mocks.saveRequestUsage).toHaveBeenCalledWith({
       provider: "openai",
       model: "text-embedding-3-small",
       connectionId: "connection-a",
       apiKey: "client-key",
       endpoint: "/v1/embeddings",
-      status: "success",
       tokens: { prompt_tokens: 12, completion_tokens: 0, total_tokens: 12 },
-    }));
+      status: "ok",
+      httpStatus: 200,
+      kind: "work",
+      dedupe: false,
+    });
   });
 
   it.each([
@@ -74,18 +82,19 @@ describe("embedding usage persistence", () => {
     { prompt_tokens: 12, total_tokens: 13 },
     { prompt_tokens: 12, completion_tokens: 1, total_tokens: 12 },
     { prompt_tokens: 12, total_tokens: 12, estimated: true },
-  ])("does not record inexact usage %#", async (usage) => {
+  ])("records inexact usage as a zero-token request %#", async (usage) => {
     mocks.handleEmbeddingsCore.mockResolvedValue({
       success: true,
       usage,
       response: Response.json({ data: [] }),
     });
 
-    await handleEmbeddings(new Request("http://localhost/v1/embeddings", {
-      method: "POST",
-      body: JSON.stringify({ model: "openai/text-embedding-3-small", input: "hello" }),
-    }));
+    await embed({ model: "openai/text-embedding-3-small", input: "hello" });
 
-    expect(mocks.saveRequestUsage).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(mocks.saveRequestUsage).toHaveBeenCalledTimes(1));
+    expect(mocks.saveRequestUsage).toHaveBeenCalledWith(expect.objectContaining({
+      tokens: { prompt_tokens: 0, completion_tokens: 0 },
+      status: "ok",
+    }));
   });
 });

@@ -1,4 +1,5 @@
 import { handleEmbeddings } from "@/sse/handlers/embeddings.js";
+import { withRequestUsage } from "@/lib/requestUsage.js";
 
 /**
  * Handle CORS preflight
@@ -16,6 +17,8 @@ export async function OPTIONS() {
 /**
  * POST /v1/embeddings - OpenAI-compatible embeddings endpoint
  */
-export async function POST(request) {
+async function handlePost(request) {
   return await handleEmbeddings(request);
 }
+
+export const POST = withRequestUsage(handlePost);

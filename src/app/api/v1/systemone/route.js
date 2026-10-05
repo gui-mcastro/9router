@@ -1,4 +1,5 @@
 import { handleSystemone } from "@/sse/handlers/systemone.js";
+import { withRequestUsage } from "@/lib/requestUsage.js";
 
 /**
  * Handle CORS preflight
@@ -16,6 +17,8 @@ export async function OPTIONS() {
 /**
  * POST /v1/systemone - System One (Jev) decision endpoint
  */
-export async function POST(request) {
+async function handlePost(request) {
   return await handleSystemone(request);
 }
+
+export const POST = withRequestUsage(handlePost);

@@ -14,6 +14,7 @@ import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { handleComboChat, getComboModelsFromData } from "open-sse/services/combo.js";
 import { assertPublicUrlResolved } from "@/shared/utils/ssrfGuard.js";
+import { currentRequestUsage } from "@/lib/requestUsage.js";
 
 /**
  * Handle web fetch (URL extraction) request for the SSE/Next.js server.
@@ -128,6 +129,8 @@ async function handleSingleProviderFetch(body, providerInput, request, apiKey, s
     return errorResponse(HTTP_STATUS.BAD_REQUEST, `Provider ${providerId} does not support web fetch`);
   }
 
+  currentRequestUsage()?.set({ provider: providerId, model: providerInput });
+
   if (providerInput !== providerId) {
     log.info("ROUTING", `${providerInput} → ${providerId}`);
   } else {
@@ -181,6 +184,8 @@ async function handleSingleProviderFetch(body, providerInput, request, apiKey, s
       log.warn("FETCH", "No more accounts available", { provider: providerId });
       return errorResponse(lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE, lastError || "All accounts unavailable");
     }
+
+    currentRequestUsage()?.set({ connectionId: credentials.connectionId });
 
     log.info("AUTH", `\x1b[32mUsing ${providerId} account: ${credentials.connectionName}\x1b[0m`);
 

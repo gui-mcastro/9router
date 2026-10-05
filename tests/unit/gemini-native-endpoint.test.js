@@ -80,7 +80,7 @@ describe("Gemini native v1beta endpoint", () => {
   });
 
   it("lists Gemini TTS models using standard Google model names", async () => {
-    const response = await GET();
+    const response = await GET(new Request("https://router.test/v1beta/models"));
     const body = await response.json();
     const names = body.models.map((model) => model.name);
 

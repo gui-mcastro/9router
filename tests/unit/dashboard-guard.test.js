@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   validateApiKey: vi.fn(),
   getConsistentMachineId: vi.fn(),
   verifyDashboardAuthToken: vi.fn(),
+  recordRejectedRequest: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({
@@ -31,6 +32,10 @@ vi.mock("@/shared/utils/machineId", () => ({
 
 vi.mock("@/lib/auth/dashboardSession", () => ({
   verifyDashboardAuthToken: mocks.verifyDashboardAuthToken,
+}));
+
+vi.mock("@/lib/requestUsage.js", () => ({
+  recordRejectedRequest: mocks.recordRejectedRequest,
 }));
 
 const { proxy, __test__ } = await import("../../src/dashboardGuard.js");
@@ -213,6 +218,19 @@ describe("dashboard guard public LLM API access", () => {
 
     expect(response).toBe(mocks.nextResponse);
     expect(mocks.validateApiKey).toHaveBeenCalledWith("sk-valid");
+  });
+
+  it("records public API requests it rejects", async () => {
+    const rejected = request("/v1/chat/completions", { host: "router.example.com", authorization: "Bearer sk-wrong" });
+    const response = await proxy(rejected);
+
+    expect(response.status).toBe(401);
+    expect(mocks.recordRejectedRequest).toHaveBeenCalledWith(rejected, 401);
+  });
+
+  it("does not record allowed requests at the guard", async () => {
+    await proxy(localRequest("/v1/chat/completions", { host: "localhost:20128" }));
+    expect(mocks.recordRejectedRequest).not.toHaveBeenCalled();
   });
 });
 

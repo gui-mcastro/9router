@@ -1,4 +1,5 @@
 import { buildModelsList } from "../route.js";
+import { withRequestUsage } from "@/lib/requestUsage.js";
 
 // URL slug → service kind(s). `web` covers both webSearch and webFetch.
 const KIND_SLUG_MAP = {
@@ -37,7 +38,7 @@ function json(data, options = {}) {
  * GET /v1/models/{provider}/{model} - OpenAI-compatible single model lookup.
  * Supported kinds: image, tts, stt, embedding, image-to-text, web.
  */
-export async function GET(_request, { params }) {
+async function handleGet(_request, { params }) {
   try {
     const { model } = await params;
     const path = Array.isArray(model) ? model : [model];
@@ -76,3 +77,5 @@ export async function GET(_request, { params }) {
     );
   }
 }
+
+export const GET = withRequestUsage(handleGet);

@@ -1,4 +1,5 @@
 import { PROVIDER_MODELS } from "@/shared/constants/models";
+import { withRequestUsage } from "@/lib/requestUsage.js";
 
 /**
  * Handle CORS preflight
@@ -17,7 +18,7 @@ export async function OPTIONS() {
  * GET /v1beta/models - Gemini compatible models list
  * Returns models in Gemini API format
  */
-export async function GET() {
+async function handleGet() {
   try {
     const models = [];
     const seen = new Set();
@@ -60,3 +61,5 @@ export async function GET() {
     return Response.json({ error: { message: error.message } }, { status: 500 });
   }
 }
+
+export const GET = withRequestUsage(handleGet);

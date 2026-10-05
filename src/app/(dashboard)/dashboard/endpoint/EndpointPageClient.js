@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import PropTypes from "prop-types";
-import { Card, Button, Input, Modal, CardSkeleton, Toggle, ConfirmModal } from "@/shared/components";
+import { Card, Button, Input, Modal, CardSkeleton, Toggle, ConfirmModal, Badge } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
+import { parseTagInput } from "@/lib/apiKeyTags";
 import {
   TUNNEL_BENEFITS,
   TUNNEL_PING_INTERVAL_MS,
@@ -20,6 +21,7 @@ import Tooltip from "./components/Tooltip";
 import SecurityWarning from "./components/SecurityWarning";
 export default function APIPageClient({ machineId }) {
   const [keys, setKeys] = useState([]);
+  const [tagEditor, setTagEditor] = useState(null); // { id, name, text, error }
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
@@ -674,6 +676,33 @@ export default function APIPageClient({ machineId }) {
     }
   };
 
+  const handleSaveTags = async () => {
+    if (!tagEditor) return;
+    let tags;
+    try {
+      tags = parseTagInput(tagEditor.text);
+    } catch (error) {
+      setTagEditor((s) => ({ ...s, error: error.message }));
+      return;
+    }
+    try {
+      const res = await fetch(`/api/keys/${tagEditor.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setTagEditor((s) => ({ ...s, error: data.error || "Failed to save tags" }));
+        return;
+      }
+      setKeys((prev) => prev.map((k) => (k.id === tagEditor.id ? { ...k, tags: data.key.tags } : k)));
+      setTagEditor(null);
+    } catch {
+      setTagEditor((s) => ({ ...s, error: "Failed to save tags" }));
+    }
+  };
+
   const maskKey = (fullKey) => {
     if (!fullKey || fullKey.length <= 10) return fullKey || "";
     return fullKey.slice(0, 6) + "•".repeat(fullKey.length - 10) + fullKey.slice(-4);
@@ -1006,6 +1035,20 @@ export default function APIPageClient({ machineId }) {
               >
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium">{key.name}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                    {(key.tags || []).map((t) => (
+                      <Badge key={t} variant="default" size="sm">#{t}</Badge>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setTagEditor({ id: key.id, name: key.name, text: (key.tags || []).join(", "), error: "" })}
+                      className="flex items-center gap-0.5 rounded px-1 text-xs text-text-muted hover:text-primary"
+                      title="Edit tags"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">sell</span>
+                      {key.tags?.length ? "Edit" : "Add tags"}
+                    </button>
+                  </div>
                   <div className="flex items-center gap-2 mt-1">
                     <code className="text-xs text-text-muted font-mono">
                       {visibleKeys.has(key.id) ? key.key : maskKey(key.key)}
@@ -1067,6 +1110,24 @@ export default function APIPageClient({ machineId }) {
           </div>
         )}
       </Card>
+
+      {/* Edit Tags Modal */}
+      <Modal isOpen={!!tagEditor} title={tagEditor ? `Tags · ${tagEditor.name}` : "Tags"} onClose={() => setTagEditor(null)}>
+        <div className="flex flex-col gap-4">
+          <Input
+            label="Tags (comma separated)"
+            value={tagEditor?.text || ""}
+            onChange={(e) => setTagEditor((s) => ({ ...s, text: e.target.value, error: "" }))}
+            placeholder="clientes, pessoal"
+          />
+          <p className="text-xs text-text-muted">Used to group keys in Usage filters and ranking. Up to 10 tags, 32 characters each.</p>
+          {tagEditor?.error && <p className="text-xs text-red-500">{tagEditor.error}</p>}
+          <div className="flex gap-2">
+            <Button onClick={handleSaveTags} fullWidth>Save</Button>
+            <Button onClick={() => setTagEditor(null)} variant="ghost" fullWidth>Cancel</Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Add Key Modal */}
       <Modal

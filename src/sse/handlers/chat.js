@@ -25,6 +25,7 @@ import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 import { stripModelContextMarker } from "open-sse/utils/modelMarkers.js";
+import { currentRequestUsage } from "@/lib/requestUsage.js";
 
 /**
  * Handle chat completion request
@@ -54,6 +55,7 @@ export async function handleChat(request, clientRawRequest = null) {
   // The capability travels in the anthropic-beta header, forwarded as-is.
   const { model: modelStr, contextMarker } = stripModelContextMarker(body.model);
   if (contextMarker) body.model = modelStr;
+  currentRequestUsage()?.set({ model: modelStr });
 
   // Request summary is emitted as the unified "▶" line in chatCore (has fmt/thinking/account)
 
@@ -220,6 +222,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   }
 
   const { provider, model } = modelInfo;
+  currentRequestUsage()?.set({ provider, model });
 
   // Routing shown in the unified "▶" line (client model → provider/model)
 
@@ -250,6 +253,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       log.warn("CHAT", "No more accounts available", { provider });
       return errorResponse(lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE, lastError || "All accounts unavailable", lastHeaders);
     }
+    currentRequestUsage()?.set({ connectionId: credentials.connectionId });
 
     // Account selection shown in the unified "▶" line (acc:...)
     const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
@@ -311,7 +315,11 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
     });
 
-    if (result.success) return result.response;
+    if (result.success) {
+      // chatCore writes the success row (with tokens) when the response completes.
+      currentRequestUsage()?.handOff();
+      return result.response;
+    }
 
     // Antigravity 409/429: refresh live quota to get exact resetAt before locking
     let quotaResetMs = null;

@@ -100,26 +100,26 @@ export function formatDoneLine({ usage, latency }) {
   return `DONE ${latency?.total ?? 0}ms${ttftStr} · ${inStr} · OUT ${outTok}`;
 }
 
-export function saveUsageStats({ provider, model, tokens, connectionId, apiKey, endpoint, label = "USAGE", silent = false }) {
-  if (!tokens || typeof tokens !== "object") return;
+export function saveUsageStats({ provider, model, tokens, connectionId, apiKey, endpoint, label = "USAGE", silent = false, status = "ok" }) {
+  const hasTokens = !!tokens && typeof tokens === "object";
+  const inTokens = hasTokens ? (tokens.input_tokens ?? tokens.prompt_tokens ?? 0) : 0;
+  const outTokens = hasTokens ? (tokens.output_tokens ?? tokens.completion_tokens ?? 0) : 0;
 
-  const inTokens = tokens.input_tokens ?? tokens.prompt_tokens ?? 0;
-  const outTokens = tokens.output_tokens ?? tokens.completion_tokens ?? 0;
-
-  if (inTokens === 0 && outTokens === 0) return;
-
-  if (!silent) {
+  if (!silent && (inTokens || outTokens)) {
     const time = new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
     const accountSuffix = connectionId ? ` | account=${connectionId.slice(0, 8)}...` : "";
     console.log(`${COLORS.green}[${time}] 📊 [${label}] ${provider.toUpperCase()} | in=${inTokens} | out=${outTokens}${accountSuffix}${COLORS.reset}`);
   }
 
+  // Every finished request is a row, even when the provider reported no usage.
   // Canonicalize to one storage convention (prompt_tokens cache-inclusive) so
   // cached/cache-creation tokens survive to cost calc + stats. See canonicalizeUsage.
-  const normalized = canonicalizeUsage(tokens) || {
-    prompt_tokens: tokens.prompt_tokens ?? tokens.input_tokens ?? 0,
-    completion_tokens: tokens.completion_tokens ?? tokens.output_tokens ?? 0
-  };
+  const normalized = !hasTokens
+    ? { prompt_tokens: 0, completion_tokens: 0 }
+    : canonicalizeUsage(tokens) || {
+      prompt_tokens: tokens.prompt_tokens ?? tokens.input_tokens ?? 0,
+      completion_tokens: tokens.completion_tokens ?? tokens.output_tokens ?? 0
+    };
 
   saveRequestUsage({
     provider: provider || "unknown",
@@ -128,6 +128,20 @@ export function saveUsageStats({ provider, model, tokens, connectionId, apiKey, 
     timestamp: new Date().toISOString(),
     connectionId: connectionId || undefined,
     apiKey: apiKey || undefined,
-    endpoint: endpoint || null
+    endpoint: endpoint || null,
+    status,
+    // 499 = client closed the request before the response finished (nginx convention).
+    httpStatus: status === "aborted" ? 499 : 200,
+    kind: "work",
   }).catch(() => {});
+}
+
+// One usage row per upstream attempt: stream completion and client abort can race.
+export function createUsageSaver() {
+  let saved = false;
+  return (args) => {
+    if (saved) return;
+    saved = true;
+    saveUsageStats(args);
+  };
 }

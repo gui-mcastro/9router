@@ -9,6 +9,7 @@ import { getSettings } from "@/lib/localDb";
 import { PROVIDER_MODELS } from "@/shared/constants/models";
 import { GEMINI_NATIVE_TTS_FETCH_TIMEOUT_MS } from "open-sse/config/runtimeConfig.js";
 import { initTranslators } from "open-sse/translator/index.js";
+import { withRequestUsage } from "@/lib/requestUsage.js";
 
 let initialized = false;
 const GEMINI_NATIVE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -50,7 +51,7 @@ export async function OPTIONS() {
  * The upstream handleChat returns OpenAI SSE format; we transform it to
  * Gemini SSE format on the fly via transformOpenAISSEToGeminiSSE().
  */
-export async function POST(request, { params }) {
+async function handlePost(request, { params }) {
   await ensureInitialized();
 
   try {
@@ -583,3 +584,5 @@ async function convertOpenAIResponseToGemini(response, model) {
     headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
   });
 }
+
+export const POST = withRequestUsage(handlePost);

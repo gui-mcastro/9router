@@ -104,6 +104,7 @@ vi.mock("../../open-sse/translator/concerns/prefetch.js", () => ({
 vi.mock("../../open-sse/handlers/chatCore/requestDetail.js", () => ({
   buildRequestDetail: vi.fn((detail) => detail),
   extractRequestConfig: vi.fn((body, stream) => ({ body, stream })),
+  createUsageSaver: vi.fn(() => vi.fn()),
 }));
 
 vi.mock("../../open-sse/utils/error.js", () => ({

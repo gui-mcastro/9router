@@ -45,7 +45,7 @@ function FilterDropdown({ label, summary, onSelectAll, onClear, children }) {
         <span className="material-symbols-outlined text-[16px]">expand_more</span>
       </button>
       {open && (
-        <div className="absolute left-0 z-30 mt-1 max-h-96 w-72 overflow-y-auto rounded-lg border border-border bg-surface p-2 shadow-lg sm:left-auto sm:right-0">
+        <div className="fixed inset-x-4 z-30 mt-1 max-h-96 overflow-y-auto rounded-lg border border-border bg-surface p-2 shadow-lg sm:absolute sm:inset-x-auto sm:right-0 sm:w-72">
           <div className="mb-1 flex justify-between px-2 text-xs">
             <button type="button" onClick={onSelectAll} className="text-primary hover:underline">Select all</button>
             <button type="button" onClick={onClear} className="text-text-muted hover:underline">Clear</button>

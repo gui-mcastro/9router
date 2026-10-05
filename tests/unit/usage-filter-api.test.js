@@ -3,6 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
+// Cold imports of the DB layer are slow on small hosts; give them room.
+vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
+
 let db;
 let repo;
 let route;

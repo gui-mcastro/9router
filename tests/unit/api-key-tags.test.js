@@ -6,6 +6,9 @@ import {
   normalizeApiKeyTags, parseStoredTags, parseTagInput, serializeTags,
 } from "../../src/lib/apiKeyTags.js";
 
+// Cold imports of the DB layer are slow on small hosts; give them room.
+vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
+
 describe("api key tag helpers", () => {
   it("normalizes case, whitespace and duplicates", () => {
     expect(normalizeApiKeyTags([" Clientes ", "clientes", "Time A"])).toEqual(["clientes", "time-a"]);
@@ -50,12 +53,16 @@ describe("api key tags persistence", () => {
   beforeEach(async () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "9router-key-tags-"));
     process.env.DATA_DIR = tempDir;
+    // The adapter lives on a global that survives vi.resetModules(); drop it so each test gets its own DB.
+    delete global._dbAdapter;
     vi.resetModules();
     db = await import("@/lib/db/index.js");
     await db.initDb();
   });
 
   afterEach(() => {
+    try { global._dbAdapter?.instance?.close?.(); } catch { /* already closed */ }
+    delete global._dbAdapter;
     delete process.env.DATA_DIR;
   });
 

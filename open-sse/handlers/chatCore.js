@@ -333,7 +333,11 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
       saveUsage({ provider, model, tokens: null, connectionId, apiKey, endpoint: clientRawRequest?.endpoint, silent: true, status: "aborted" });
       if (onDisconnect) onDisconnect(reason);
     },
-    onError: () => trackPendingRequest(model, provider, connectionId, false),
+    onError: () => {
+      trackPendingRequest(model, provider, connectionId, false);
+      // Upstream failed mid-response after the handler handed off: still exactly one row.
+      saveUsage({ provider, model, tokens: null, connectionId, apiKey, endpoint: clientRawRequest?.endpoint, silent: true, status: "error" });
+    },
     log, provider, model, reqTag
   });
 

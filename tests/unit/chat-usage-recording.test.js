@@ -55,6 +55,7 @@ vi.mock("../../open-sse/services/projectId.js", () => ({ getProjectIdForConnecti
 vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
 
 const { saveUsageStats, createUsageSaver } = await import("../../open-sse/handlers/chatCore/requestDetail.js");
+const { createStreamController } = await import("../../open-sse/utils/streamHandler.js");
 const { handleChat } = await import("../../src/sse/handlers/chat.js");
 const { withRequestUsage } = await import("../../src/lib/requestUsage.js");
 const POST = withRequestUsage(handleChat);
@@ -93,6 +94,40 @@ describe("chat usage rows from chatCore", () => {
     completeFirst({ provider: "openai", model: "gpt-x", tokens: null, silent: true, status: "aborted" });
     expect(mocks.saveRequestUsage).toHaveBeenCalledTimes(2);
     expect(mocks.saveRequestUsage).toHaveBeenLastCalledWith(expect.objectContaining({ status: "ok", httpStatus: 200 }));
+  });
+});
+
+describe("chat usage rows when the upstream fails mid-stream", () => {
+  it("records an error row with zero tokens as 502", () => {
+    saveUsageStats({ provider: "openai", model: "gpt-x", tokens: null, connectionId: "c1", apiKey: "k", endpoint: "/v1/chat/completions", silent: true, status: "error" });
+    expect(mocks.saveRequestUsage).toHaveBeenCalledTimes(1);
+    expect(mocks.saveRequestUsage).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "openai", model: "gpt-x", tokens: { prompt_tokens: 0, completion_tokens: 0 },
+      status: "error", httpStatus: 502, kind: "work",
+    }));
+  });
+
+  it("keeps only the error row when a completion save follows", () => {
+    const saveUsage = createUsageSaver();
+    saveUsage({ provider: "openai", model: "gpt-x", tokens: null, silent: true, status: "error" });
+    saveUsage({ provider: "openai", model: "gpt-x", tokens: { prompt_tokens: 5, completion_tokens: 1 }, silent: true });
+    expect(mocks.saveRequestUsage).toHaveBeenCalledTimes(1);
+    expect(mocks.saveRequestUsage).toHaveBeenLastCalledWith(expect.objectContaining({ status: "error", httpStatus: 502 }));
+  });
+
+  it("writes one error row when the stream controller reports an upstream reset, then a cancel", () => {
+    // Same wiring as chatCore: onError and onDisconnect share one saver.
+    const saveUsage = createUsageSaver();
+    const controller = createStreamController({
+      provider: "openai", model: "gpt-x",
+      log: { errorLine: vi.fn(), line: vi.fn() },
+      onDisconnect: () => saveUsage({ provider: "openai", model: "gpt-x", tokens: null, silent: true, status: "aborted" }),
+      onError: () => saveUsage({ provider: "openai", model: "gpt-x", tokens: null, silent: true, status: "error" }),
+    });
+    controller.handleError(Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }));
+    controller.handleDisconnect("client_closed");
+    expect(mocks.saveRequestUsage).toHaveBeenCalledTimes(1);
+    expect(mocks.saveRequestUsage).toHaveBeenLastCalledWith(expect.objectContaining({ status: "error", httpStatus: 502 }));
   });
 });
 

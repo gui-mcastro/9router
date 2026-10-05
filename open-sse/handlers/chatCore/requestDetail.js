@@ -100,6 +100,10 @@ export function formatDoneLine({ usage, latency }) {
   return `DONE ${latency?.total ?? 0}ms${ttftStr} · ${inStr} · OUT ${outTok}`;
 }
 
+// 499 = client closed the request before the response finished (nginx convention);
+// 502 = upstream failed mid-stream after the client already got a 200.
+const USAGE_HTTP_STATUS = { ok: 200, aborted: 499, error: 502 };
+
 export function saveUsageStats({ provider, model, tokens, connectionId, apiKey, endpoint, label = "USAGE", silent = false, status = "ok" }) {
   const hasTokens = !!tokens && typeof tokens === "object";
   const inTokens = hasTokens ? (tokens.input_tokens ?? tokens.prompt_tokens ?? 0) : 0;
@@ -130,8 +134,7 @@ export function saveUsageStats({ provider, model, tokens, connectionId, apiKey, 
     apiKey: apiKey || undefined,
     endpoint: endpoint || null,
     status,
-    // 499 = client closed the request before the response finished (nginx convention).
-    httpStatus: status === "aborted" ? 499 : 200,
+    httpStatus: USAGE_HTTP_STATUS[status] ?? 200,
     kind: "work",
   }).catch(() => {});
 }

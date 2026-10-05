@@ -60,4 +60,36 @@ describe("usage routes apply the saved filter", () => {
     expect(models).toContain("ring-voice");
     expect(models).not.toContain("ring-meta");
   });
+
+  it("getActiveRequests carries the in-flight pending map", async () => {
+    db.trackPendingRequest("pending-model", "openai", "conn-pending", true);
+    try {
+      const { pending } = await db.getActiveRequests();
+      expect(pending.byModel["pending-model (openai)"]).toBe(1);
+      expect(pending.byAccount["conn-pending"]["pending-model (openai)"]).toBe(1);
+    } finally {
+      db.trackPendingRequest("pending-model", "openai", "conn-pending", false);
+    }
+  });
+
+  it("GET /api/usage/stream pushes only realtime fields, never the full stats", async () => {
+    const { GET } = await import("@/app/api/usage/stream/route.js");
+    const res = await GET();
+    const reader = res.body.getReader();
+    try {
+      const { value } = await reader.read();
+      const text = new TextDecoder().decode(value);
+      expect(text.startsWith("data: ")).toBe(true);
+      const payload = JSON.parse(text.slice(6).trim());
+      expect(payload).toHaveProperty("activeRequests");
+      expect(payload).toHaveProperty("recentRequests");
+      expect(payload).toHaveProperty("pending");
+      expect(payload).toHaveProperty("errorProvider");
+      expect(payload).not.toHaveProperty("byModel");
+      expect(payload).not.toHaveProperty("totalRequests");
+      expect(payload.recentRequests.map((r) => r.model)).toEqual(["route-model-a"]);
+    } finally {
+      await reader.cancel();
+    }
+  });
 });

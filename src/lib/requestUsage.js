@@ -25,13 +25,33 @@ export function extractRequestApiKey(request) {
   return key ? key.slice(0, MAX_KEY_LENGTH) : null;
 }
 
-function createRecord(request) {
+// Attacker-controlled paths must not bloat history rows.
+const MAX_ENDPOINT_LENGTH = 128;
+
+// Recording must never break a request: an unparseable request gets a record that writes nothing.
+const NOOP_RECORD = Object.freeze({
+  noop: true,
+  fields: Object.freeze({}),
+  set() {},
+  handOff() {},
+  handedOff: false,
+});
+
+function createRecord(request, { kind } = {}) {
+  try {
+    return buildRecord(request, kind);
+  } catch {
+    return NOOP_RECORD;
+  }
+}
+
+function buildRecord(request, kindOverride) {
   const url = new URL(request.url);
   const fields = {};
   let handedOff = false;
   return {
-    kind: classifyRequestKind(request.method, url.pathname),
-    endpoint: url.pathname,
+    kind: kindOverride || classifyRequestKind(request.method, url.pathname),
+    endpoint: url.pathname.slice(0, MAX_ENDPOINT_LENGTH),
     apiKey: extractRequestApiKey(request),
     fields,
     set(values = {}) {
@@ -51,6 +71,7 @@ function createRecord(request) {
 }
 
 function recordOutcome(record, httpStatus) {
+  if (record.noop) return;
   const ok = httpStatus < 400;
   if (ok && record.handedOff) return;
   const f = record.fields;
@@ -93,7 +114,14 @@ export function withRequestUsage(handler) {
   };
 }
 
-// Requests refused before any route runs (dashboard guard 401).
+// Requests refused before any route runs (dashboard guard 401). A refused request did no work, so it is
+// recorded as non-work (history only: no daily rollup, no lifetime counter, hidden from the default view).
+// CORS preflights are never recorded. Must never throw into the guard.
 export function recordRejectedRequest(request, httpStatus) {
-  recordOutcome(createRecord(request), httpStatus);
+  try {
+    if (request.method === "OPTIONS") return;
+    recordOutcome(createRecord(request, { kind: "meta" }), httpStatus);
+  } catch {
+    // Recording is best-effort; the 401 still goes out.
+  }
 }

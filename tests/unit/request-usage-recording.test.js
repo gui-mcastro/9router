@@ -160,10 +160,39 @@ describe("withRequestUsage", () => {
     expect(rows()).toHaveLength(3);
   });
 
-  it("records requests rejected before routing", async () => {
+  it("records requests rejected before routing as non-work rows outside the daily rollup", async () => {
     requestUsage.recordRejectedRequest(req("POST", "/v1/chat/completions?key=sk-bad"), 401);
     await vi.waitFor(() => expect(rows()).toHaveLength(1));
-    expect(rows()[0]).toMatchObject({ status: "error", httpStatus: 401, apiKey: "sk-bad", kind: "work", endpoint: "/v1/chat/completions" });
+    expect(rows()[0]).toMatchObject({ status: "error", httpStatus: 401, apiKey: "sk-bad", kind: "meta", endpoint: "/v1/chat/completions" });
+    expect(adapter.all(`SELECT dateKey FROM usageDaily`)).toEqual([]);
+    expect(adapter.get(`SELECT value FROM _meta WHERE key = 'totalRequestsLifetime'`)).toBeUndefined();
+  });
+
+  it("stores long endpoints truncated to 128 chars", async () => {
+    const longPath = `/v1/${"a".repeat(500)}`;
+    requestUsage.recordRejectedRequest(req("POST", longPath), 401);
+    const handler = requestUsage.withRequestUsage(async () => new Response("x", { status: 404 }));
+    await handler(req("POST", longPath));
+    await vi.waitFor(() => expect(rows()).toHaveLength(2));
+    for (const row of rows()) expect(row.endpoint).toBe(longPath.slice(0, 128));
+  });
+
+  it("never records rejected OPTIONS preflights", async () => {
+    requestUsage.recordRejectedRequest(req("OPTIONS", "/v1/chat/completions"), 401);
+    await settle();
+    expect(rows()).toEqual([]);
+  });
+
+  it("still runs the handler when the request cannot be parsed for recording", async () => {
+    const handler = requestUsage.withRequestUsage(async () => new Response("handled", { status: 201 }));
+    const res = await handler({ url: "not a url", headers: new Headers(), method: "POST" });
+    expect(res.status).toBe(201);
+    expect(await res.text()).toBe("handled");
+  });
+
+  it("does not throw when recording a malformed rejected request", () => {
+    expect(() => requestUsage.recordRejectedRequest({ url: "not a url", method: "POST" }, 401)).not.toThrow();
+    expect(() => requestUsage.recordRejectedRequest(null, 401)).not.toThrow();
   });
 
   it("returns null outside a wrapped request", () => {

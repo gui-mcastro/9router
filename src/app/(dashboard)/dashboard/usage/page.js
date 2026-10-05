@@ -5,6 +5,8 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { RequestLogger, CardSkeleton, SegmentedControl } from "@/shared/components";
 import UsageStats from "@/shared/components/UsageStats";
 import RequestDetailsTab from "./components/RequestDetailsTab";
+import useUsageFilter from "./components/useUsageFilter";
+import UsageFilterBar from "./components/UsageFilterBar";
 
 const PERIODS = [
   { value: "today", label: "Today" },
@@ -28,6 +30,7 @@ function UsageContent() {
   const router = useRouter();
 
   const [period, setPeriod] = useState("today");
+  const usageFilter = useUsageFilter();
 
   const tabFromUrl = searchParams.get("tab");
   const activeTab = tabFromUrl && ["overview", "logs", "details"].includes(tabFromUrl)
@@ -55,19 +58,34 @@ function UsageContent() {
           className="w-full sm:w-auto"
         />
         {activeTab === "overview" && (
-          <SegmentedControl
-            options={PERIODS}
-            value={period}
-            onChange={setPeriod}
-            size="sm"
-            className="w-full sm:w-auto"
-          />
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            <UsageFilterBar
+              filter={usageFilter.filter}
+              options={usageFilter.options}
+              setFilter={usageFilter.setFilter}
+              syncError={usageFilter.syncError}
+            />
+            <SegmentedControl
+              options={PERIODS}
+              value={period}
+              onChange={setPeriod}
+              size="sm"
+              className="w-full sm:w-auto"
+            />
+          </div>
         )}
       </div>
 
       {activeTab === "overview" && (
         <Suspense fallback={<CardSkeleton />}>
-          <UsageStats period={period} setPeriod={setPeriod} hidePeriodSelector />
+          <UsageStats
+            period={period}
+            setPeriod={setPeriod}
+            hidePeriodSelector
+            filterVersion={usageFilter.version}
+            filter={usageFilter.filter}
+            setFilter={usageFilter.setFilter}
+          />
         </Suspense>
       )}
       {activeTab === "logs" && <RequestLogger />}

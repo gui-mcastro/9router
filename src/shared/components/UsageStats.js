@@ -66,7 +66,7 @@ function RecentRequests({ requests = [] }) {
               {requests.map((r, i) => {
                 const ok = !r.status || r.status === "ok" || r.status === "success";
                 return (
-                  <tr key={i} className="hover:bg-bg-subtle transition-colors">
+                  <tr key={i} className="hover:bg-bg-subtle transition-colors" title={[r.endpoint, r.httpStatus || r.status].filter(Boolean).join(" · ")}>
                     <td className="py-1.5">
                       <span className={`block w-1.5 h-1.5 rounded-full ${ok ? "bg-success" : "bg-error"}`} />
                     </td>
@@ -203,7 +203,7 @@ const PERIODS = [
   { value: "all", label: "All" },
 ];
 
-export default function UsageStats({ period: periodProp, setPeriod: setPeriodProp, hidePeriodSelector = false } = {}) {
+export default function UsageStats({ period: periodProp, setPeriod: setPeriodProp, hidePeriodSelector = false, filterVersion = 0, filter = null, setFilter = null } = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -278,7 +278,7 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
         setLoading(false);
         setFetching(false);
       });
-  }, [period]);
+  }, [period, filterVersion]);
 
   // SSE connection - real-time updates for activeRequests + recentRequests only
   useEffect(() => {
@@ -319,6 +319,14 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
     }
     router.replace(`?${params.toString()}`, { scroll: false });
   }, [searchParams, router]);
+
+  // Topology only shows the selected providers; the server already filters live activity by provider.
+  const visibleProviders = useMemo(() => {
+    if (filter?.providers?.mode !== "selected") return providers;
+    const selected = new Set(filter.providers.ids);
+    return providers.filter((p) => selected.has(String(p.provider || "").toLowerCase()));
+  }, [providers, filter]);
+  const keyFilterActive = filter?.apiKeys?.mode === "selected";
 
   // Compute active table data
   const activeTableConfig = useMemo(() => {
@@ -475,7 +483,7 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
       {loading ? spinner : (
         <div className="grid min-w-0 grid-cols-1 items-stretch gap-2 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
           <ProviderTopology
-            providers={providers}
+            providers={visibleProviders}
             activeRequests={stats.activeRequests || []}
             lastProvider={stats.recentRequests?.[0]?.provider || ""}
             errorProvider={stats.errorProvider || ""}
@@ -483,9 +491,12 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
           <RecentRequests requests={stats.recentRequests || []} />
         </div>
       )}
+      {!loading && keyFilterActive && (
+        <p className="-mt-4 text-[11px] text-text-muted">Live activity on the topology is filtered by provider only.</p>
+      )}
 
       {/* Token / Cost chart - sync period */}
-      {loading ? spinner : <UsageChart period={period} />}
+      {loading ? spinner : <UsageChart period={period} refreshKey={filterVersion} />}
 
       {/* Provider and model breakdown charts */}
       {!loading && (stats.byProvider || stats.byModel) && (

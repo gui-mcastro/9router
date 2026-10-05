@@ -9,7 +9,7 @@ import { getSettings } from "@/lib/localDb";
 import { PROVIDER_MODELS } from "@/shared/constants/models";
 import { GEMINI_NATIVE_TTS_FETCH_TIMEOUT_MS } from "open-sse/config/runtimeConfig.js";
 import { initTranslators } from "open-sse/translator/index.js";
-import { withRequestUsage } from "@/lib/requestUsage.js";
+import { withRequestUsage, currentRequestUsage } from "@/lib/requestUsage.js";
 
 let initialized = false;
 const GEMINI_NATIVE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -244,6 +244,7 @@ async function forwardGeminiNativeRequest(request, body, model, action) {
   if (!GEMINI_NATIVE_MODEL_PATTERN.test(modelId)) {
     return Response.json({ error: { message: "Invalid model" } }, { status: 400 });
   }
+  currentRequestUsage()?.set({ provider: "gemini", model: modelId });
   const excludeConnectionIds = new Set();
   const bodyText = JSON.stringify(body);
   let lastError = null;
@@ -258,6 +259,8 @@ async function forwardGeminiNativeRequest(request, body, model, action) {
         { status: lastStatus || Number(credentials?.lastErrorCode) || 503 }
       );
     }
+
+    currentRequestUsage()?.set({ connectionId: credentials.connectionId });
 
     const authHeaders = buildGeminiNativeAuthHeaders(credentials);
     if (!authHeaders) {

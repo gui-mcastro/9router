@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getProviderCredentials: vi.fn(),
   markAccountUnavailable: vi.fn(),
   clearAccountError: vi.fn(),
+  saveRequestUsage: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("@/sse/handlers/chat.js", () => ({
@@ -22,6 +23,10 @@ vi.mock("@/sse/services/auth.js", () => ({
 
 vi.mock("@/lib/localDb", () => ({
   getSettings: mocks.getSettings,
+}));
+
+vi.mock("@/lib/usageDb.js", () => ({
+  saveRequestUsage: mocks.saveRequestUsage,
 }));
 
 const { GET } = await import("../../src/app/api/v1beta/models/route.js");
@@ -107,6 +112,18 @@ describe("Gemini native v1beta endpoint", () => {
     expect(JSON.parse(options.body)).toEqual(body);
     expect(options.headers["x-goog-api-key"]).toBe("real-gemini-key");
     expect(options.headers.Authorization).toBeUndefined();
+  });
+
+  it("records native TTS requests with the resolved provider, model and account", async () => {
+    const response = await POST(makeGeminiRequest("gemini-3.1-flash-tts-preview:generateContent", audioBody()), {
+      params: Promise.resolve({ path: ["gemini-3.1-flash-tts-preview:generateContent"] }),
+    });
+    expect(response.status).toBe(200);
+    await vi.waitFor(() => expect(mocks.saveRequestUsage).toHaveBeenCalledTimes(1));
+    expect(mocks.saveRequestUsage).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "gemini", model: "gemini-3.1-flash-tts-preview", connectionId: "gemini-conn",
+      apiKey: "router-client-key", status: "ok", httpStatus: 200, kind: "work",
+    }));
   });
 
   it("accepts Google-style client keys without forwarding them upstream", async () => {

@@ -222,7 +222,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   }
 
   const { provider, model } = modelInfo;
-  currentRequestUsage()?.set({ provider, model });
+  currentRequestUsage()?.set({ provider, model, connectionId: null });
 
   // Routing shown in the unified "▶" line (client model → provider/model)
 

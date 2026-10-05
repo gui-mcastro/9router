@@ -109,7 +109,7 @@ async function handleSingleProviderSearch(body, providerInput, request, apiKey, 
     return errorResponse(HTTP_STATUS.BAD_REQUEST, `Provider ${providerId} does not support web search`);
   }
 
-  currentRequestUsage()?.set({ provider: providerId, model: providerInput });
+  currentRequestUsage()?.set({ provider: providerId, model: providerInput, connectionId: null });
 
   if (providerInput !== providerId) {
     log.info("ROUTING", `${providerInput} → ${providerId}`);

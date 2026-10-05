@@ -75,6 +75,18 @@ describe("withRequestUsage", () => {
     });
   });
 
+  it("lets an explicit null clear a field while undefined leaves it unchanged", async () => {
+    const handler = requestUsage.withRequestUsage(async () => {
+      const usage = requestUsage.currentRequestUsage();
+      usage.set({ provider: "a", model: "m", connectionId: "c1" });
+      usage.set({ connectionId: null, model: undefined });
+      return new Response("ok");
+    });
+    await handler(req("POST", "/v1/audio/speech"));
+    await vi.waitFor(() => expect(rows()).toHaveLength(1));
+    expect(rows()[0]).toMatchObject({ provider: "a", model: "m", connectionId: null });
+  });
+
   it("records errors with the final status code", async () => {
     const handler = requestUsage.withRequestUsage(async () => Response.json({ error: "x" }, { status: 404 }));
     await handler(req("POST", "/v1/images/generations"));

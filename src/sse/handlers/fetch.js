@@ -129,7 +129,7 @@ async function handleSingleProviderFetch(body, providerInput, request, apiKey, s
     return errorResponse(HTTP_STATUS.BAD_REQUEST, `Provider ${providerId} does not support web fetch`);
   }
 
-  currentRequestUsage()?.set({ provider: providerId, model: providerInput });
+  currentRequestUsage()?.set({ provider: providerId, model: providerInput, connectionId: null });
 
   if (providerInput !== providerId) {
     log.info("ROUTING", `${providerInput} → ${providerId}`);

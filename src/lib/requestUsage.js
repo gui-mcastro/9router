@@ -36,7 +36,8 @@ function createRecord(request) {
     fields,
     set(values = {}) {
       for (const name of RECORDED_FIELDS) {
-        if (values[name] != null) fields[name] = values[name];
+        // undefined leaves the field alone; an explicit null clears it (a combo moving to the next model resets the account).
+        if (values[name] !== undefined) fields[name] = values[name];
       }
     },
     // Success will be written downstream (chatCore saves the row with tokens when the response completes).

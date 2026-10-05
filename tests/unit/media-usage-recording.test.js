@@ -19,10 +19,19 @@ vi.mock("../../src/sse/services/model.js", () => ({
     const [provider, ...rest] = m.split("/");
     return { provider, model: rest.join("/") };
   },
-  getComboModels: async () => null,
+  getComboModels: async (m) => (m === "my-tts-combo" ? ["elevenlabs/voice-id", "edge-tts/voice"] : null),
 }));
 vi.mock("../../open-sse/handlers/ttsCore.js", () => ({ handleTtsCore: mocks.handleTtsCore }));
-vi.mock("../../open-sse/services/combo.js", () => ({ handleComboChat: vi.fn() }));
+vi.mock("../../open-sse/services/combo.js", () => ({
+  handleComboChat: async ({ body, models, handleSingleModel }) => {
+    let last;
+    for (const m of models) {
+      last = await handleSingleModel(body, m);
+      if (last.ok) return last;
+    }
+    return last;
+  },
+}));
 vi.mock("../../src/sse/utils/logger.js", () => ({
   request: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn(), maskKey: vi.fn(),
 }));
@@ -94,6 +103,15 @@ describe("TTS requests through the route wrapper", () => {
     expect((await speak("elevenlabs/voice-id")).status).toBe(400);
     await vi.waitFor(() => expect(recorded()).toHaveLength(1));
     expect(recorded()[0]).toMatchObject({ provider: "elevenlabs", connectionId: null, httpStatus: 400 });
+  });
+
+  it("does not leak the failed account of an earlier combo attempt into the final row", async () => {
+    mocks.getProviderCredentials.mockResolvedValue({ connectionId: "conn-1", connectionName: "A" });
+    mocks.markAccountUnavailable.mockResolvedValue({ shouldFallback: false });
+    mocks.handleTtsCore.mockImplementation(async ({ provider }) => (provider === "elevenlabs" ? failure(500) : audio()));
+    expect((await speak("my-tts-combo")).status).toBe(200);
+    await vi.waitFor(() => expect(recorded()).toHaveLength(1));
+    expect(recorded()[0]).toMatchObject({ provider: "edge-tts", model: "voice", connectionId: null, status: "ok" });
   });
 
   it("audio still succeeds when saving usage fails", async () => {
